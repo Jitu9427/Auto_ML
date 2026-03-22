@@ -3,14 +3,17 @@ import pandas as pd
 import io
 import uuid
 from pydantic import BaseModel
+from typing import List
 from ml.pipeline import train_and_evaluate
 
 router = APIRouter()
 
 class TrainRequest(BaseModel):
     dataset_id: str
-    target_column: str
+    target_column: str = ""
     task_type: str = "auto"
+    selected_models: List[str] = []
+    selected_metrics: List[str] = []
 
 # In-memory storage for datasets (in a real scalable app, use Redis/S3/Database)
 DATASETS = {}
@@ -51,7 +54,13 @@ def train_models(request: TrainRequest):
     df = DATASETS[request.dataset_id]
     
     try:
-        results = train_and_evaluate(df, request.target_column, request.task_type)
+        results = train_and_evaluate(
+            df, 
+            request.target_column, 
+            request.task_type, 
+            request.selected_models,
+            request.selected_metrics
+        )
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error executing training pipeline: {str(e)}")
