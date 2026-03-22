@@ -1,38 +1,60 @@
 import { useState, useEffect } from 'react';
 
-const CLASSIFICATION_MODELS = ['Logistic Regression', 'Random Forest', 'Gradient Boosting', 'AdaBoost', 'Bagging', 'Voting Ensemble', 'Stacking Ensemble', 'SVM', 'K-Nearest Neighbors', 'Decision Tree', 'Naive Bayes'];
-const REGRESSION_MODELS = ['Linear Regression', 'Ridge Regression', 'Lasso Regression', 'Random Forest', 'Gradient Boosting', 'AdaBoost', 'Bagging', 'Voting Ensemble', 'Stacking Ensemble', 'SVR', 'K-Nearest Neighbors', 'Decision Tree'];
-const CLUSTERING_MODELS = ['K-Means', 'DBSCAN', 'Hierarchical (Agglomerative)'];
 const CLASSIFICATION_METRICS = ['Accuracy', 'F1 Score', 'Precision', 'Recall'];
 const REGRESSION_METRICS = ['MSE', 'RMSE', 'MAE', 'R2 Score', 'Explained Variance', 'Max Error'];
 const CLUSTERING_METRICS = ['Silhouette Score', 'Davies-Bouldin Index', 'Calinski-Harabasz Index'];
 
 export default function Configuration({ dataInfo, onTrainResults, isTraining, setIsTraining }) {
   const [targetColumn, setTargetColumn] = useState(dataInfo.columns[dataInfo.columns.length - 1]);
-  const [taskType, setTaskType] = useState('auto');
-  const [selectedModels, setSelectedModels] = useState([]);
-  const [selectedMetrics, setSelectedMetrics] = useState([]);
+  const [taskType, setTaskType] = useState('classification');
+  
+  const [availableModelsInfo, setAvailableModelsInfo] = useState({});
+  const [selectedModel, setSelectedModel] = useState('');
+  const [modelParams, setModelParams] = useState({});
+  const [showAdvancedParams, setShowAdvancedParams] = useState(false);
+  
+  const [selectedMetrics, setSelectedMetrics] = useState(CLASSIFICATION_METRICS);
   const [error, setError] = useState(null);
 
-  // Default selection based on task type
+  // Fetch models whenever taskType changes
   useEffect(() => {
-    if (taskType === 'clustering') {
-       setSelectedModels(CLUSTERING_MODELS);
-       setSelectedMetrics(CLUSTERING_METRICS);
-    } else if (taskType === 'regression' || (taskType === 'auto' && dataInfo.num_rows > 100)) {
-       setSelectedModels(REGRESSION_MODELS);
-       setSelectedMetrics(REGRESSION_METRICS);
-    } else {
-       setSelectedModels(CLASSIFICATION_MODELS);
-       setSelectedMetrics(CLASSIFICATION_METRICS);
-    }
-  }, [taskType, dataInfo.num_rows]);
+    const fetchModels = async () => {
+      setAvailableModelsInfo({});
+      try {
+        const response = await fetch(`http://localhost:8000/api/v1/models/${taskType}`);
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableModelsInfo(data.models);
+          
+          const modelNames = Object.keys(data.models);
+          if (modelNames.length > 0) {
+            const defaultModel = modelNames.includes('RandomForestClassifier') ? 'RandomForestClassifier' : modelNames[0];
+            setSelectedModel(defaultModel);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch models", err);
+      }
+    };
+    fetchModels();
 
-  const toggleModel = (model) => {
-    setSelectedModels(prev => 
-      prev.includes(model) ? prev.filter(m => m !== model) : [...prev, model]
-    );
-  };
+    if (taskType === 'clustering') setSelectedMetrics(CLUSTERING_METRICS);
+    else if (taskType === 'regression') setSelectedMetrics(REGRESSION_METRICS);
+    else setSelectedMetrics(CLASSIFICATION_METRICS);
+  }, [taskType]);
+
+  // When selectedModel changes, reset initialized form params
+  useEffect(() => {
+    if (selectedModel && availableModelsInfo[selectedModel]) {
+      const initialParams = {};
+      Object.entries(availableModelsInfo[selectedModel]).forEach(([key, info]) => {
+        initialParams[key] = info.default;
+      });
+      setModelParams(initialParams);
+    } else {
+      setModelParams({});
+    }
+  }, [selectedModel, availableModelsInfo]);
 
   const toggleMetric = (metric) => {
     setSelectedMetrics(prev => 
@@ -40,9 +62,16 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
     );
   };
 
+  const handleParamChange = (paramName, value) => {
+    setModelParams(prev => ({
+      ...prev,
+      [paramName]: value
+    }));
+  };
+
   const startTraining = async () => {
-    if (selectedModels.length === 0) {
-      setError("Please select at least one algorithm.");
+    if (!selectedModel) {
+      setError("Please select an algorithm.");
       return;
     }
     if (selectedMetrics.length === 0) {
@@ -62,17 +91,19 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
           dataset_id: dataInfo.dataset_id,
           target_column: targetColumn,
           task_type: taskType,
-          selected_models: selectedModels,
+          model_name: selectedModel,
+          model_params: modelParams,
           selected_metrics: selectedMetrics
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Training failed to execute.');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(`Execution failed: ${errData.detail || 'Server error'}`);
       }
       
-      const results = await response.json();
-      onTrainResults(results);
+      const newRun = await response.json();
+      onTrainResults(newRun);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -81,28 +112,29 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
   };
 
   const isClustering = taskType === 'clustering';
-  const availableModels = isClustering ? CLUSTERING_MODELS : ((taskType === 'regression' || (taskType === 'auto' && dataInfo.num_rows > 100)) ? REGRESSION_MODELS : CLASSIFICATION_MODELS);
-  const availableMetrics = isClustering ? CLUSTERING_METRICS : ((taskType === 'regression' || (taskType === 'auto' && dataInfo.num_rows > 100)) ? REGRESSION_METRICS : CLASSIFICATION_METRICS);
+  const availableMetrics = isClustering ? CLUSTERING_METRICS : (taskType === 'regression' ? REGRESSION_METRICS : CLASSIFICATION_METRICS);
 
   return (
     <div className="glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <h2 style={{ marginBottom: '1.5rem', fontSize: '1.25rem' }}>Configuration</h2>
+      <h2 style={{ marginBottom: '1.5rem', fontSize: '1.25rem' }}>Configure Experiment</h2>
 
-      <div className="select-wrapper">
-        <label className="label">Target Variable {isClustering && <span style={{fontSize: '0.8rem', color: '#888'}}>(Ignored for Clustering)</span>}</label>
-        <select 
-          className="select-input"
-          value={targetColumn} 
-          onChange={(e) => setTargetColumn(e.target.value)}
-          disabled={isTraining || isClustering}
-        >
-          {dataInfo.columns.map(col => (
-            <option key={col} value={col}>{col}</option>
-          ))}
-        </select>
-      </div>
+      {!isClustering && (
+        <div className="select-wrapper" style={{ marginBottom: '1rem' }}>
+          <label className="label">Target Variable</label>
+          <select 
+            className="select-input"
+            value={targetColumn} 
+            onChange={(e) => setTargetColumn(e.target.value)}
+            disabled={isTraining}
+          >
+            {dataInfo.columns.map(col => (
+              <option key={col} value={col}>{col}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
-      <div className="select-wrapper">
+      <div className="select-wrapper" style={{ marginBottom: '1rem' }}>
         <label className="label">Problem Type</label>
         <select 
           className="select-input"
@@ -110,34 +142,105 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
           onChange={(e) => setTaskType(e.target.value)}
           disabled={isTraining}
         >
-          <option value="auto">Auto-detect</option>
           <option value="classification">Classification</option>
           <option value="regression">Regression</option>
           <option value="clustering">Clustering (Unsupervised)</option>
         </select>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', paddingRight: '0.5rem' }}>
-        <div>
-          <label className="label" style={{ marginBottom: '0.5rem' }}>Select Algorithms</label>
-          <div className="custom-multi-select">
-            {availableModels.map(model => {
-              const isSelected = selectedModels.includes(model);
-              return (
-                <div 
-                  key={model} 
-                  className={`select-item ${isSelected ? 'selected' : ''} ${isTraining ? 'disabled' : ''}`}
-                  onClick={() => !isTraining && toggleModel(model)}
-                >
-                  {model}
-                </div>
-              );
-            })}
+      <div className="select-wrapper" style={{ marginBottom: '1rem' }}>
+        <label className="label">Algorithm</label>
+        <select 
+          className="select-input"
+          value={selectedModel} 
+          onChange={(e) => setSelectedModel(e.target.value)}
+          disabled={isTraining}
+        >
+          {Object.keys(availableModelsInfo).map(modelName => (
+            <option key={modelName} value={modelName}>{modelName}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingRight: '0.5rem' }}>
+        
+        {/* Hyperparameters Section */}
+        {Object.keys(modelParams).length > 0 && (
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+            <div 
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+              onClick={() => setShowAdvancedParams(!showAdvancedParams)}
+            >
+              <label className="label" style={{ margin: 0, color: 'var(--primary-color)', cursor: 'pointer' }}>
+                Advanced Hyperparameters ⚙️
+              </label>
+              <span style={{ color: 'var(--text-secondary)' }}>{showAdvancedParams ? '▲' : '▼'}</span>
+            </div>
+            
+            {showAdvancedParams && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
+                {Object.entries(availableModelsInfo[selectedModel] || {}).map(([paramName, paramInfo]) => {
+                  if (paramInfo.type === 'boolean') {
+                    return (
+                      <div key={paramName} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={modelParams[paramName] === true}
+                          onChange={(e) => handleParamChange(paramName, e.target.checked)}
+                          disabled={isTraining}
+                          style={{ width: '16px', height: '16px', accentColor: 'var(--primary-color)' }}
+                        />
+                        <span style={{ fontSize: '0.85rem' }}>{paramName}</span>
+                      </div>
+                    );
+                  }
+                  if (paramInfo.choices && Array.isArray(paramInfo.choices)) {
+                    return (
+                        <div key={paramName} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{paramName}</span>
+                          <select 
+                            value={modelParams[paramName] === null ? "" : modelParams[paramName]}
+                            onChange={(e) => handleParamChange(paramName, e.target.value)}
+                            disabled={isTraining}
+                            className="select-input"
+                            style={{ padding: '0.5rem', fontSize: '0.85rem' }}
+                          >
+                             <option value="">{paramInfo.default === "" || paramInfo.default === null ? "Default" : paramInfo.default}</option>
+                             {paramInfo.choices.map(choice => (
+                               <option key={choice} value={choice}>{choice}</option>
+                             ))}
+                          </select>
+                        </div>
+                    );
+                  }
+                  
+                  return (
+                    <div key={paramName} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{paramName} ({paramInfo.type})</span>
+                      <input 
+                        type={paramInfo.type === 'string' ? "text" : "number"}
+                        step={paramInfo.type === 'float' ? "any" : "1"}
+                        value={modelParams[paramName] === null ? "" : modelParams[paramName]}
+                        onChange={(e) => {
+                          let val = e.target.value;
+                          if (val !== "" && paramInfo.type === 'int') val = parseInt(val, 10);
+                          if (val !== "" && paramInfo.type === 'float') val = parseFloat(val);
+                          handleParamChange(paramName, val);
+                        }}
+                        disabled={isTraining}
+                        className="select-input"
+                        style={{ padding: '0.5rem', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </div>
+        )}
 
         <div>
-          <label className="label" style={{ marginBottom: '0.5rem' }}>Select Metrics</label>
+          <label className="label" style={{ marginBottom: '0.5rem' }}>Evaluation Metrics</label>
           <div className="custom-multi-select">
             {availableMetrics.map(metric => {
               const isSelected = selectedMetrics.includes(metric);
@@ -158,10 +261,10 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
       <button 
         className="btn" 
         onClick={startTraining}
-        disabled={isTraining || selectedModels.length === 0}
-        style={{ width: '100%' }}
+        disabled={isTraining || !selectedModel}
+        style={{ width: '100%', padding: '1rem', marginTop: 'auto' }}
       >
-        {isTraining ? "Training..." : "Run Analysis 🚀"}
+        {isTraining ? "Running..." : "Run Experiment 🚀"}
       </button>
 
       {error && <div style={{ color: '#ef4444', marginTop: '1rem', fontSize: '0.85rem' }}>{error}</div>}

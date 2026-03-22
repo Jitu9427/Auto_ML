@@ -6,7 +6,7 @@ import ResultsDashboard from './components/ResultsDashboard';
 
 export default function App() {
   const [dataInfo, setDataInfo] = useState(null); // Step 1 result
-  const [results, setResults] = useState(null);
+  const [runHistory, setRunHistory] = useState([]);
   const [isTraining, setIsTraining] = useState(false);
   
   // Resizer state
@@ -47,19 +47,27 @@ export default function App() {
 
   const handleUploadSuccess = (data) => {
     setDataInfo(data);
-    setResults(null); // Clear old results if new file uploaded
+    setRunHistory([]); 
   };
 
   const handleRestart = () => {
     setDataInfo(null);
-    setResults(null);
+    setRunHistory([]);
     setIsTraining(false);
+  };
+  
+  const handleTrainResults = (newRun) => {
+    setRunHistory(prev => [newRun, ...prev]);
+  };
+
+  const handleDeleteRun = (indexToDelete) => {
+    setRunHistory(prev => prev.filter((_, i) => i !== indexToDelete));
   };
 
   return (
     <>
       <header className="app-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1400px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 className="app-title">AutoML Platform</h1>
           {dataInfo && (
             <button className="btn btn-secondary" onClick={handleRestart} style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
@@ -84,7 +92,7 @@ export default function App() {
             <div style={{ width: `${splitRatio}%`, flexShrink: 0, height: '100%', overflow: 'hidden' }}>
               <Configuration 
                 dataInfo={dataInfo} 
-                onTrainResults={setResults} 
+                onTrainResults={handleTrainResults}  
                 isTraining={isTraining}
                 setIsTraining={setIsTraining}
               />
@@ -110,11 +118,11 @@ export default function App() {
               <div style={{ width: '4px', height: '40px', backgroundColor: 'rgba(255, 255, 255, 0.15)', borderRadius: '2px' }} />
             </div>
 
-            {/* Main Content Area */}
             <div style={{ width: `calc(${100 - splitRatio}% - 32px)`, flex: 1, minWidth: 0, height: '100%', overflowY: 'auto', paddingRight: '0.5rem' }}>
               <ResultsDashboard 
-                resultsData={results} 
+                runHistory={runHistory} 
                 isTraining={isTraining}
+                onDeleteRun={handleDeleteRun}
               />
             </div>
           </div>
