@@ -4,6 +4,7 @@ import UploadForm from './components/UploadForm';
 import Configuration from './components/Configuration';
 import ResultsDashboard from './components/ResultsDashboard';
 import EDADashboard from './components/EDADashboard';
+import PreprocessingDashboard from './components/PreprocessingDashboard';
 
 export default function App() {
   const [dataInfo, setDataInfo] = useState(null); // Step 1 result
@@ -14,6 +15,15 @@ export default function App() {
   const [splitRatio, setSplitRatio] = useState(30);
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState('train');
+
+  const [preprocessingConfig, setPreprocessingConfig] = useState({
+    test_size: 0.2,
+    random_state: 42,
+    numerical_imputation: 'mean',
+    categorical_imputation: 'most_frequent',
+    scaling: 'StandardScaler',
+    encoding: 'OneHotEncoder'
+  });
 
   const handleMouseDown = (e) => {
     e.preventDefault();
@@ -76,6 +86,12 @@ export default function App() {
         {dataInfo && (
           <div style={{display: 'flex', gap: '1rem', marginLeft: 'auto', marginRight: '2rem'}}>
             <button 
+              onClick={() => setActiveTab('prep')} 
+              style={{ background: activeTab === 'prep' ? 'rgba(56, 189, 248, 0.2)' : 'transparent', border: '1px solid rgba(56, 189, 248, 0.5)', color: activeTab === 'prep' ? '#38bdf8' : 'white', padding: '0.4rem 1rem', borderRadius: '4px', cursor: 'pointer', transition: 'all 0.2s' }}
+            >
+              Data Preprocessing 🔧
+            </button>
+            <button 
               onClick={() => setActiveTab('eda')} 
               style={{ background: activeTab === 'eda' ? 'rgba(56, 189, 248, 0.2)' : 'transparent', border: '1px solid rgba(56, 189, 248, 0.5)', color: activeTab === 'eda' ? '#38bdf8' : 'white', padding: '0.4rem 1rem', borderRadius: '4px', cursor: 'pointer', transition: 'all 0.2s' }}
             >
@@ -108,6 +124,7 @@ export default function App() {
                     onTrainResults={handleTrainResults}  
                     isTraining={isTraining}
                     setIsTraining={setIsTraining}
+                    preprocessingConfig={preprocessingConfig}
                   />
                 </div>
                 
@@ -140,8 +157,10 @@ export default function App() {
                   />
                 </div>
               </>
-            ) : (
+            ) : activeTab === 'eda' ? (
               <EDADashboard dataInfo={dataInfo} />
+            ) : (
+              <PreprocessingDashboard config={preprocessingConfig} setConfig={setPreprocessingConfig} />
             )}
           </div>
         )}

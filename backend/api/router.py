@@ -21,6 +21,7 @@ class TrainRequest(BaseModel):
     model_name: str
     model_params: Dict[str, Any] = {}
     selected_metrics: List[str] = []
+    preprocessing_config: Dict[str, Any] = None
 
 class EDARequest(BaseModel):
     dataset_id: str
@@ -89,11 +90,51 @@ def train_models(request: TrainRequest):
             request.task_type, 
             request.model_name,
             request.model_params,
-            request.selected_metrics
+            request.selected_metrics,
+            request.preprocessing_config
         )
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error executing training pipeline: {str(e)}")
+
+@router.get("/eda/summary/{dataset_id}")
+def get_eda_summary(dataset_id: str):
+    if dataset_id not in DATASETS:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    
+    df = DATASETS[dataset_id]
+    
+    # Phase 1: Summary Stats
+    try:
+        sample = df.sample(min(5, len(df))).fillna("NaN").to_dict(orient="records")
+    except:
+        sample = df.head(min(5, len(df))).fillna("NaN").to_dict(orient="records")
+        
+    shape = list(df.shape) # [rows, cols]
+    missing = df.isnull().sum().to_dict()
+    duplicates = int(df.duplicated().sum())
+    
+    # describe() for numerical
+    num_df = df.select_dtypes(include='number')
+    if not num_df.empty:
+        describe_dict = num_df.describe().fillna("NaN").to_dict()
+    else:
+        describe_dict = {}
+        
+    # Memory estimation roughly
+    memory_mb = round(df.memory_usage(deep=True).sum() / (1024 * 1024), 2)
+    
+    dtypes_dict = {str(k): str(v) for k, v in df.dtypes.items()}
+    
+    return {
+        "shape": shape,
+        "sample": sample,
+        "missing": missing,
+        "duplicates": duplicates,
+        "describe": describe_dict,
+        "dtypes": dtypes_dict,
+        "memory_mb": memory_mb
+    }
 
 @router.post("/eda/plot")
 def generate_eda_plot(request: EDARequest):
@@ -115,7 +156,9 @@ def generate_eda_plot(request: EDARequest):
         if len(valid_cols) == 1:
             col = valid_cols[0]
             if ptype == 'histogram':
-                sns.histplot(data=df, x=col, kde=True, ax=ax)
+                sns.histplot(data=df, x=col, kde=False, ax=ax)
+            elif ptype == 'distplot':
+                sns.histplot(data=df, x=col, kde=True, stat="density", ax=ax)
             elif ptype == 'boxplot':
                 sns.boxplot(data=df, y=col, ax=ax)
             elif ptype == 'countplot':
@@ -124,6 +167,14 @@ def generate_eda_plot(request: EDARequest):
             elif ptype == 'pie':
                 df[col].value_counts().plot.pie(autopct='%1.1f%%', ax=ax)
                 ax.set_ylabel('')
+            elif ptype == 'kdeplot':
+                sns.kdeplot(data=df, x=col, fill=True, ax=ax)
+            elif ptype == 'rugplot':
+                sns.rugplot(data=df, x=col, ax=ax)
+                sns.histplot(data=df, x=col, kde=True, alpha=0.3, ax=ax) # usually paired
+            elif ptype == 'ecdfplot':
+                sns.ecdfplot(data=df, x=col, ax=ax)
+                
         elif len(valid_cols) == 2:
             col1, col2 = valid_cols[0], valid_cols[1]
             if ptype == 'scatter':
@@ -137,6 +188,40 @@ def generate_eda_plot(request: EDARequest):
             elif ptype == 'bar':
                 sns.barplot(data=df, x=col1, y=col2, ax=ax)
                 plt.xticks(rotation=45)
+            elif ptype == 'stripplot':
+                sns.stripplot(data=df, x=col1, y=col2, ax=ax, alpha=0.7)
+                plt.xticks(rotation=45)
+            elif ptype == 'swarmplot':
+                sns.swarmplot(data=df, x=col1, y=col2, ax=ax)
+                plt.xticks(rotation=45)
+            elif ptype == 'pointplot':
+                sns.pointplot(data=df, x=col1, y=col2, ax=ax)
+                plt.xticks(rotation=45)
+            elif ptype == 'hexbin':
+                plt.close(fig)
+                hb = sns.jointplot(data=df, x=col1, y=col2, kind="hex")
+                fig = hb.fig
+            elif ptype == 'jointplot':
+                plt.close(fig)
+                jp = sns.jointplot(data=df, x=col1, y=col2, kind="scatter")
+                fig = jp.fig
+            elif ptype == 'distplot_compare':
+                # hue requires mostly categorical variable. Let's find which one is categorical
+                from pandas.api.types import is_numeric_dtype
+                if not is_numeric_dtype(df[col1]) and is_numeric_dtype(df[col2]):
+                    sns.kdeplot(data=df, x=col2, hue=col1, fill=True, common_norm=False, ax=ax)
+                elif not is_numeric_dtype(df[col2]) and is_numeric_dtype(df[col1]):
+                    sns.kdeplot(data=df, x=col1, hue=col2, fill=True, common_norm=False, ax=ax)
+                else:
+                    sns.kdeplot(data=df, x=col1, hue=col2, fill=True, common_norm=False, ax=ax)
+            elif ptype == 'crosstab_heatmap':
+                cross = pd.crosstab(df[col1], df[col2])
+                sns.heatmap(cross, annot=True, fmt='d', cmap='Blues', ax=ax)
+            elif ptype == 'cluster_map':
+                plt.close(fig) # cluster map creates its own figure
+                cross = pd.crosstab(df[col1], df[col2])
+                cm = sns.clustermap(cross, annot=True, fmt='d', cmap='Blues', figsize=(8, 6))
+                fig = cm.fig
             elif ptype == 'line':
                 sns.lineplot(data=df, x=col1, y=col2, ax=ax)
         else: # Multiple columns
@@ -151,7 +236,7 @@ def generate_eda_plot(request: EDARequest):
                 raise ValueError("Invalid plot type for multiple columns.")
         
         # Ensure proper layout
-        if ptype != 'pairplot':
+        if ptype not in ('pairplot', 'hexbin', 'jointplot', 'cluster_map'):
             fig.tight_layout()
             
         # Convert figure to base64
@@ -161,8 +246,33 @@ def generate_eda_plot(request: EDARequest):
         img_base64 = base64.b64encode(buf.read()).decode('utf-8')
         plt.close(fig)
         
-        return {"image_base64": img_base64}
+        return {"image_base64": img_base64, "plot_type": ptype, "columns": cols}
+    except ValueError as ve:
+        plt.close(fig)
+        raise HTTPException(status_code=400, detail=f"Incompatible Data Types for {ptype}: {str(ve)}")
+    except TypeError as te:
+        plt.close(fig)
+        raise HTTPException(status_code=400, detail=f"Mathematics Error against {ptype} structure: {str(te)}. Try changing column combinations.")
     except Exception as e:
         plt.close(fig)
         raise HTTPException(status_code=500, detail=f"Failed to generate plot: {str(e)}")
+
+
+@router.post("/eda/head")
+def get_eda_head(request: EDARequest):
+    if request.dataset_id not in DATASETS:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+        
+    df = DATASETS[request.dataset_id]
+    cols = request.selected_columns
+    
+    valid_cols = [c for c in cols if c in df.columns]
+    if not valid_cols:
+        raise HTTPException(status_code=400, detail="No valid columns provided.")
+    
+    try:
+        sample = df[valid_cols].head(5).fillna("NaN").to_dict(orient="records")
+        return {"columns": valid_cols, "sample": sample}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error extracting data sample: {str(e)}")
 

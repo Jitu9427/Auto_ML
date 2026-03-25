@@ -15,22 +15,41 @@ from sklearn.metrics import (
 )
 import time
 
-def get_preprocessor(X):
+def get_preprocessor(X, config=None):
     """
-    Creates a scikit-learn preprocessor pipeline that handles numeric and categorical columns.
+    Creates a scikit-learn preprocessor pipeline dynamically tracking numeric and categorical columns.
     """
+    config = config or {}
+    num_impute = config.get('numerical_imputation', 'mean')
+    cat_impute = config.get('categorical_imputation', 'most_frequent')
+    scaling_algo = config.get('scaling', 'StandardScaler')
+    encoding_algo = config.get('encoding', 'OneHotEncoder')
+
     numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
     categorical_features = X.select_dtypes(include=['object', 'category']).columns
 
-    numeric_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', StandardScaler())
-    ])
+    num_steps = [('imputer', SimpleImputer(strategy=num_impute))]
+    if scaling_algo != 'None':
+        from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler
+        scalers = {
+            'StandardScaler': StandardScaler(),
+            'MinMaxScaler': MinMaxScaler(),
+            'RobustScaler': RobustScaler(),
+            'MaxAbsScaler': MaxAbsScaler()
+        }
+        num_steps.append(('scaler', scalers.get(scaling_algo, StandardScaler())))
 
-    categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='most_frequent')),
-        ('onehot', OneHotEncoder(handle_unknown='ignore'))
-    ])
+    numeric_transformer = Pipeline(steps=num_steps)
+
+    cat_steps = [('imputer', SimpleImputer(strategy=cat_impute))]
+    if encoding_algo == 'OrdinalEncoder':
+        from sklearn.preprocessing import OrdinalEncoder
+        cat_steps.append(('encoder', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)))
+    else:
+        from sklearn.preprocessing import OneHotEncoder
+        cat_steps.append(('encoder', OneHotEncoder(handle_unknown='ignore', sparse_output=False)))
+
+    categorical_transformer = Pipeline(steps=cat_steps)
 
     preprocessor = ColumnTransformer(
         transformers=[
@@ -122,7 +141,7 @@ def get_estimator_class(task_type, model_name):
         return None
     return estimators.get(model_name)
 
-def train_and_evaluate(df, target_column, task_type='classification', model_name=None, model_params=None, selected_metrics=None):
+def train_and_evaluate(df, target_column, task_type='classification', model_name=None, model_params=None, selected_metrics=None, preprocessing_config=None):
     """Trains a single models and evaluates it, returning metrics."""
     if task_type != 'clustering' and target_column not in df.columns:
         raise ValueError(f"Target column '{target_column}' not found in dataset.")
@@ -147,13 +166,17 @@ def train_and_evaluate(df, target_column, task_type='classification', model_name
                 from sklearn.preprocessing import LabelEncoder
                 y = LabelEncoder().fit_transform(y)
 
+    prep = preprocessing_config or {}
+    test_size = float(prep.get('test_size', 0.2))
+    random_state = int(prep.get('random_state', 42))
+
     if task_type != 'clustering':
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
     else:
         X_train = X
         X_test = X
         
-    preprocessor = get_preprocessor(X)
+    preprocessor = get_preprocessor(X, prep)
     
     ModelClass = get_estimator_class(task_type, model_name)
     if not ModelClass:
