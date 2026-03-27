@@ -16,13 +16,9 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState('train');
 
-  const [preprocessingConfig, setPreprocessingConfig] = useState({
+  const [splitConfig, setSplitConfig] = useState({
     test_size: 0.2,
-    random_state: 42,
-    numerical_imputation: 'mean',
-    categorical_imputation: 'most_frequent',
-    scaling: 'StandardScaler',
-    encoding: 'OneHotEncoder'
+    random_state: 42
   });
 
   const handleMouseDown = (e) => {
@@ -124,7 +120,8 @@ export default function App() {
                     onTrainResults={handleTrainResults}  
                     isTraining={isTraining}
                     setIsTraining={setIsTraining}
-                    preprocessingConfig={preprocessingConfig}
+                    splitConfig={splitConfig}
+                    setSplitConfig={setSplitConfig}
                   />
                 </div>
                 
@@ -160,7 +157,7 @@ export default function App() {
             ) : activeTab === 'eda' ? (
               <EDADashboard dataInfo={dataInfo} />
             ) : (
-              <PreprocessingDashboard config={preprocessingConfig} setConfig={setPreprocessingConfig} />
+              <PreprocessingDashboard dataInfo={dataInfo} setDataInfo={setDataInfo} />
             )}
           </div>
         )}

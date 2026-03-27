@@ -1,11 +1,11 @@
 import pandas as pd
 import numpy as np
 import math
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.utils import all_estimators
 import warnings
 from sklearn.metrics import (
@@ -13,50 +13,95 @@ from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score, explained_variance_score, max_error,
     silhouette_score, davies_bouldin_score, calinski_harabasz_score
 )
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer, KNNImputer
+from sklearn.preprocessing import (
+    StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler,
+    OneHotEncoder, OrdinalEncoder,
+    FunctionTransformer, PowerTransformer, KBinsDiscretizer
+)
+try:
+    from sklearn.preprocessing import TargetEncoder
+except ImportError:
+    TargetEncoder = None
+
 import time
 
+class OutlierWinsorizer(BaseEstimator, TransformerMixin):
+    def __init__(self, method='z-score', action='cap', threshold=3.0):
+        self.method = method
+        self.action = action
+        self.threshold = threshold
+        self.bounds_ = {}
+        
+    def fit(self, X, y=None):
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X)
+        for col in X.columns:
+            if pd.api.types.is_numeric_dtype(X[col]):
+                if self.method == 'z-score':
+                    mean = X[col].mean()
+                    std = X[col].std()
+                    self.bounds_[col] = (mean - self.threshold * std, mean + self.threshold * std)
+                elif self.method == 'iqr':
+                    q1 = X[col].quantile(0.25)
+                    q3 = X[col].quantile(0.75)
+                    iqr = q3 - q1
+                    self.bounds_[col] = (q1 - 1.5 * iqr, q3 + 1.5 * iqr)
+                elif self.method == 'percentile':
+                    lower = X[col].quantile(0.01 if self.threshold == 3.0 else 0.05)
+                    upper = X[col].quantile(0.99 if self.threshold == 3.0 else 0.95)
+                    self.bounds_[col] = (lower, upper)
+        return self
+
+    def transform(self, X):
+        X_out = X.copy()
+        if not isinstance(X_out, pd.DataFrame):
+            X_out = pd.DataFrame(X_out, columns=self.bounds_.keys() if len(self.bounds_) == X_out.shape[1] else None)
+            
+        for col, (lower, upper) in self.bounds_.items():
+            if col in X_out.columns:
+                if self.action == 'cap':
+                    X_out[col] = X_out[col].clip(lower=lower, upper=upper)
+        return X_out
+
+    def get_feature_names_out(self, input_features=None):
+        return input_features
+
+class FrequencyEncoder(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        self.freq_map_ = {}
+        
+    def fit(self, X, y=None):
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X)
+        for col in X.columns:
+            self.freq_map_[col] = X[col].value_counts(normalize=True).to_dict()
+        return self
+        
+    def transform(self, X):
+        X_out = X.copy()
+        if not isinstance(X_out, pd.DataFrame):
+            X_out = pd.DataFrame(X_out, columns=self.freq_map_.keys() if len(self.freq_map_) == X_out.shape[1] else None)
+        for col, mapping in self.freq_map_.items():
+            if col in X_out.columns:
+                X_out[col] = X_out[col].map(mapping).fillna(0)
+        return X_out
+        
+    def get_feature_names_out(self, input_features=None):
+        return input_features
+
+def apply_pandas_preprocessing(df, target_column, config):
+    # Deprecated in V12. Pandas mutates natively strictly via apply_step in router.py
+    return df
+
 def get_preprocessor(X, config=None):
-    """
-    Creates a scikit-learn preprocessor pipeline dynamically tracking numeric and categorical columns.
-    """
-    config = config or {}
-    num_impute = config.get('numerical_imputation', 'mean')
-    cat_impute = config.get('categorical_imputation', 'most_frequent')
-    scaling_algo = config.get('scaling', 'StandardScaler')
-    encoding_algo = config.get('encoding', 'OneHotEncoder')
+    # Deprecated in V12. Mapped dynamically iteratively in router.py
+    pass
+    
+    categorical_constant_value = str(config.get('categorical_constant_value', 'Unknown'))
 
-    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
-    categorical_features = X.select_dtypes(include=['object', 'category']).columns
 
-    num_steps = [('imputer', SimpleImputer(strategy=num_impute))]
-    if scaling_algo != 'None':
-        from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler
-        scalers = {
-            'StandardScaler': StandardScaler(),
-            'MinMaxScaler': MinMaxScaler(),
-            'RobustScaler': RobustScaler(),
-            'MaxAbsScaler': MaxAbsScaler()
-        }
-        num_steps.append(('scaler', scalers.get(scaling_algo, StandardScaler())))
-
-    numeric_transformer = Pipeline(steps=num_steps)
-
-    cat_steps = [('imputer', SimpleImputer(strategy=cat_impute))]
-    if encoding_algo == 'OrdinalEncoder':
-        from sklearn.preprocessing import OrdinalEncoder
-        cat_steps.append(('encoder', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)))
-    else:
-        from sklearn.preprocessing import OneHotEncoder
-        cat_steps.append(('encoder', OneHotEncoder(handle_unknown='ignore', sparse_output=False)))
-
-    categorical_transformer = Pipeline(steps=cat_steps)
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', numeric_transformer, numeric_features),
-            ('cat', categorical_transformer, categorical_features)
-        ])
-    return preprocessor
 
 def get_safe_estimators(task_type):
     """Dynamically loads all safe scikit-learn estimators and their default parameters."""
@@ -143,8 +188,12 @@ def get_estimator_class(task_type, model_name):
 
 def train_and_evaluate(df, target_column, task_type='classification', model_name=None, model_params=None, selected_metrics=None, preprocessing_config=None):
     """Trains a single models and evaluates it, returning metrics."""
+    prep = preprocessing_config or {}
+    
+    prep = preprocessing_config or {}
+    
     if task_type != 'clustering' and target_column not in df.columns:
-        raise ValueError(f"Target column '{target_column}' not found in dataset.")
+        raise ValueError(f"Target column '{target_column}' not found in dataset after trimming.")
         
     if task_type == 'clustering':
         if target_column in df.columns:
@@ -175,8 +224,6 @@ def train_and_evaluate(df, target_column, task_type='classification', model_name
     else:
         X_train = X
         X_test = X
-        
-    preprocessor = get_preprocessor(X, prep)
     
     ModelClass = get_estimator_class(task_type, model_name)
     if not ModelClass:
@@ -205,11 +252,10 @@ def train_and_evaluate(df, target_column, task_type='classification', model_name
     
     try:
         if task_type == 'clustering':
-            X_processed = preprocessor.fit_transform(X_train)
             if hasattr(model, 'fit_predict'):
-                y_pred = model.fit_predict(X_processed)
+                y_pred = model.fit_predict(X_train)
             else:
-                y_pred = model.fit(X_processed).labels_
+                y_pred = model.fit(X_train).labels_
             training_time = time.time() - start_time
             
             calc_metrics = {}
@@ -217,11 +263,11 @@ def train_and_evaluate(df, target_column, task_type='classification', model_name
             
             if num_classes_found > 1:
                 if not selected_metrics or 'Silhouette Score' in selected_metrics:
-                    calc_metrics['Silhouette Score'] = float(silhouette_score(X_processed, y_pred))
+                    calc_metrics['Silhouette Score'] = float(silhouette_score(X_train, y_pred))
                 if not selected_metrics or 'Davies-Bouldin Index' in selected_metrics:
-                    calc_metrics['Davies-Bouldin Index'] = float(davies_bouldin_score(X_processed, y_pred))
+                    calc_metrics['Davies-Bouldin Index'] = float(davies_bouldin_score(X_train, y_pred))
                 if not selected_metrics or 'Calinski-Harabasz Index' in selected_metrics:
-                    calc_metrics['Calinski-Harabasz Index'] = float(calinski_harabasz_score(X_processed, y_pred))
+                    calc_metrics['Calinski-Harabasz Index'] = float(calinski_harabasz_score(X_train, y_pred))
             else:
                 calc_metrics['Error'] = "Generated only 1 cluster. Cannot compute structure metrics."
             
@@ -233,9 +279,8 @@ def train_and_evaluate(df, target_column, task_type='classification', model_name
                 "training_time": float(training_time)
             }
         else:
-            pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
-            pipeline.fit(X_train, y_train)
-            y_pred = pipeline.predict(X_test)
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
             training_time = time.time() - start_time
             
             calc_metrics = {}

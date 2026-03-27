@@ -4,7 +4,7 @@ const CLASSIFICATION_METRICS = ['Accuracy', 'F1 Score', 'Precision', 'Recall'];
 const REGRESSION_METRICS = ['MSE', 'RMSE', 'MAE', 'R2 Score', 'Explained Variance', 'Max Error'];
 const CLUSTERING_METRICS = ['Silhouette Score', 'Davies-Bouldin Index', 'Calinski-Harabasz Index'];
 
-export default function Configuration({ dataInfo, onTrainResults, isTraining, setIsTraining }) {
+export default function Configuration({ dataInfo, onTrainResults, isTraining, setIsTraining, splitConfig, setSplitConfig }) {
   const [targetColumn, setTargetColumn] = useState(dataInfo.columns[dataInfo.columns.length - 1]);
   const [taskType, setTaskType] = useState('classification');
   
@@ -93,7 +93,8 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
           task_type: taskType,
           model_name: selectedModel,
           model_params: modelParams,
-          selected_metrics: selectedMetrics
+          selected_metrics: selectedMetrics,
+          preprocessing_config: splitConfig
         }),
       });
 
@@ -163,6 +164,39 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingRight: '0.5rem' }}>
+      
+        {/* Train Test Split Configuration */}
+        {splitConfig && (
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <h3 style={{ fontSize: '0.9rem', color: '#f8fafc', marginBottom: '0.75rem' }}>Train/Test Split Configuration</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div>
+                    <label className="label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Test Set Size (Holdout)</span>
+                      <span style={{ color: '#38bdf8' }}>{Math.round(splitConfig.test_size * 100)}%</span>
+                    </label>
+                    <input 
+                      type="range" min="0.05" max="0.5" step="0.05"
+                      value={splitConfig.test_size || 0.2}
+                      onChange={(e) => setSplitConfig(prev => ({...prev, test_size: parseFloat(e.target.value)}))}
+                      style={{ width: '100%', accentColor: '#38bdf8' }}
+                      disabled={isTraining}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Random State (Seed)</label>
+                    <input 
+                      type="number" className="select-input"
+                      value={splitConfig.random_state || 42}
+                      onChange={(e) => setSplitConfig(prev => ({...prev, random_state: parseInt(e.target.value, 10)}))}
+                      disabled={isTraining}
+                      style={{ maxWidth: '120px' }}
+                    />
+                  </div>
+              </div>
+            </div>
+        )}
+
         
         {/* Hyperparameters Section */}
         {Object.keys(modelParams).length > 0 && (
