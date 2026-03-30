@@ -116,7 +116,7 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
   const availableMetrics = isClustering ? CLUSTERING_METRICS : (taskType === 'regression' ? REGRESSION_METRICS : CLASSIFICATION_METRICS);
 
   return (
-    <div className="glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className="glass-panel" style={{ minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
       <h2 style={{ marginBottom: '1.5rem', fontSize: '1.25rem' }}>Configure Experiment</h2>
 
       {!isClustering && (
@@ -163,7 +163,7 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
         </select>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingRight: '0.5rem' }}>
+      <div style={{ flex: 1, marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingRight: '0.5rem' }}>
       
         {/* Train Test Split Configuration */}
         {splitConfig && (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function PreprocessingDashboard({ dataInfo, setDataInfo }) {
+export default function PreprocessingDashboard({ dataInfo, setDataInfo, splitRatio = 35, isDragging = false, handleMouseDown }) {
   const [selectedColumns, setSelectedColumns] = useState([]);
   const [category, setCategory] = useState('imputation');
   const [method, setMethod] = useState('mean');
@@ -150,63 +150,52 @@ export default function PreprocessingDashboard({ dataInfo, setDataInfo }) {
   };
 
   return (
-    <div className="glass-panel" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto' }}>
-      
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-          <div>
-              <h2 style={{ margin: 0, fontSize: '1.5rem', background: 'linear-gradient(90deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+    <div style={{ display: 'flex', width: '100%' }}>
+       {/* Left Configuration Panel */}
+       <div className="glass-panel" style={{ width: `calc(${splitRatio}% - 32px)`, marginLeft: '0.5rem', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+          
+          <div style={{ marginBottom: '1.5rem' }}>
+              <h2 style={{ margin: 0, fontSize: '1.35rem', background: 'linear-gradient(90deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                 Sequential Feature Engineer 🔧
               </h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: '600px', marginTop: '0.5rem' }}>
-                Select target columns, bind an algorithm explicitly, and inspect the preview. Hit <b>Commit</b> to write changes securely.
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                Select target columns, bind an algorithm, and preview.
               </p>
           </div>
           
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-              {stagedChanges.length > 0 && (
-                  <>
-                      <button onClick={handleDiscard} className="btn" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#fca5a5', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                          Discard Previews ❌
-                      </button>
-                      <button onClick={handleCommit} className="btn" style={{ background: '#10b981', color: 'black', fontWeight: 'bold', boxShadow: '0 0 15px rgba(16, 185, 129, 0.4)' }}>
-                          Commit {stagedChanges.length} Changes ✅
-                      </button>
-                  </>
-              )}
-          </div>
-      </div>
-
-      {error && <div style={{ background: error.startsWith('Changes') ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)', borderLeft: error.startsWith('Changes') ? '4px solid #10b981' : '4px solid #ef4444', padding: '1rem', marginBottom: '1rem', borderRadius: '4px', color: error.startsWith('Changes') ? '#6ee7b7' : '#fca5a5' }}>{error}</div>}
-
-      <div style={{ display: 'flex', gap: '2rem', flexDirection: 'row', flexWrap: 'wrap' }}>
-        
-        {/* Step 1: Column Selection */}
-        <div style={{ flex: '1 1 250px', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <h3 style={{ fontSize: '1.1rem', color: '#f8fafc', marginBottom: '1rem' }}>1. Target Columns ({selectedColumns.length})</h3>
-            <div style={{ maxHeight: '420px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingRight: '0.5rem' }}>
-                {currentColumns?.map(c => (
-                    <label key={c} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', padding: '0.4rem 0.5rem', background: selectedColumns.includes(c) ? 'rgba(56, 189, 248, 0.15)' : 'transparent', borderRadius: '4px', transition: 'background 0.2s', border: selectedColumns.includes(c) ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid transparent' }}>
-                       <input 
-                           type="checkbox" 
-                           checked={selectedColumns.includes(c)} 
-                           onChange={() => toggleColumn(c)}
-                           style={{ accentColor: '#38bdf8', transform: 'scale(1.1)' }}
-                       />
-                       <span style={{ fontSize: '0.9rem', color: selectedColumns.includes(c) ? '#38bdf8' : '#e2e8f0', userSelect: 'none', wordBreak: 'break-all' }}>{c}</span>
-                    </label>
-                ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            
+            {/* Step 1: Column Selection */}
+            <div>
+                <h3 style={{ fontSize: '1.1rem', color: '#f8fafc', marginBottom: '0.75rem' }}>1. Target Columns ({selectedColumns.length})</h3>
+            <div className="custom-multi-select" style={{ }}>
+                {currentColumns?.map(col => {
+                    const isSelected = selectedColumns.includes(col);
+                    const isNum = dataInfo?.column_types?.[col] === 'numerical';
+                    return (
+                        <div 
+                            key={col} 
+                            className={`select-item ${isSelected ? 'selected' : ''}`}
+                            onClick={() => toggleColumn(col)}
+                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                        >
+                            <span>{col}</span>
+                            <span style={{ fontSize: '0.7rem', color: isNum ? '#38bdf8' : '#fbbf24', background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '10px' }}>
+                                {isNum ? '123' : 'ABC'}
+                            </span>
+                        </div>
+                    );
+                })}
             </div>
             <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
                 <button onClick={() => setSelectedColumns(currentColumns || [])} style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: 'none', padding: '0.5rem', color: '#f8fafc', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>Select All</button>
                 <button onClick={() => setSelectedColumns([])} style={{ flex: 1, background: 'rgba(239, 68, 68, 0.1)', border: 'none', padding: '0.5rem', color: '#fca5a5', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>Clear</button>
             </div>
-        </div>
-
-        {/* Step 2: Algorithm Execution Engine */}
-        <div style={{ flex: '2 1 350px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            </div>
             
-            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                <h3 style={{ fontSize: '1.1rem', color: '#f8fafc', marginBottom: '1.25rem' }}>2. Inject Transformation</h3>
+            {/* Step 2: Algorithm Execution Engine */}
+            <div>
+                <h3 style={{ fontSize: '1.1rem', color: '#f8fafc', marginBottom: '1rem' }}>2. Inject Transformation</h3>
                 
                 <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
                     <div style={{ flex: 1 }}>
@@ -345,13 +334,50 @@ export default function PreprocessingDashboard({ dataInfo, setDataInfo }) {
                 >
                   {loading ? 'Processing Preview...' : `Preview ${method} on ${selectedColumns.length} Columns 📝`}
                 </button>
-
             </div>
-        </div>
-        
-        {/* Step 3: Staged Changes Timeline */}
-        <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flex: 1, display: 'flex', flexDirection: 'column' }}>
+            {error && <div style={{ background: error.startsWith('Changes') ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)', borderLeft: error.startsWith('Changes') ? '4px solid #10b981' : '4px solid #ef4444', padding: '1rem', marginTop: '1rem', borderRadius: '4px', color: error.startsWith('Changes') ? '#6ee7b7' : '#fca5a5', fontSize: '0.85rem' }}>{error}</div>}
+          </div>
+       </div>
+
+      {/* Resizer Handle */}
+      <div 
+        onMouseDown={handleMouseDown}
+        className={`resizer ${isDragging ? 'dragging' : ''}`}
+        style={{
+          width: '16px',
+          cursor: 'col-resize',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          margin: '0 8px',
+          userSelect: 'none',
+          backgroundColor: isDragging ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+          borderRadius: '4px',
+          transition: 'background-color 0.2s',
+          flexShrink: 0
+        }}
+      >
+          <div style={{ width: '2px', height: '30px', background: isDragging ? '#38bdf8' : 'rgba(255,255,255,0.2)', borderRadius: '2px' }} />
+      </div>
+
+       {/* Right Results Dashboard */}
+       <div className="main-content" style={{ width: `calc(${100 - splitRatio}% - 32px)`, paddingRight: '0.5rem', flex: 1, minWidth: 0 }}>
+          
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '1rem', gap: '0.75rem' }}>
+              {stagedChanges.length > 0 && (
+                  <>
+                      <button onClick={handleDiscard} className="btn" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#fca5a5', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '0.5rem 1rem' }}>
+                          Discard Previews ❌
+                      </button>
+                      <button onClick={handleCommit} className="btn" style={{ background: '#10b981', color: 'black', fontWeight: 'bold', boxShadow: '0 0 15px rgba(16, 185, 129, 0.4)', padding: '0.5rem 1rem' }}>
+                          Commit {stagedChanges.length} Changes ✅
+                      </button>
+                  </>
+              )}
+          </div>
+
+          {/* Step 3: Staged Changes Timeline */}
+          <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <h3 style={{ fontSize: '1.1rem', color: '#f8fafc', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>3. Staged Previews</span>
                     <span style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', padding: '2px 8px', borderRadius: '12px', fontSize: '0.8rem' }}>{stagedChanges.length} Stages</span>
@@ -399,7 +425,7 @@ export default function PreprocessingDashboard({ dataInfo, setDataInfo }) {
                          <h4 style={{ color: '#10b981', fontSize: '0.95rem', margin: '0 0 0.75rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                               ✅ Locked Pipeline History
                          </h4>
-                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '450px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingRight: '0.5rem' }}>
                              {dataInfo.history.map((hist, i) => (
                                  typeof hist === 'string' ? (
                                      <div key={i} style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -433,9 +459,8 @@ export default function PreprocessingDashboard({ dataInfo, setDataInfo }) {
                      </div>
                 )}
             </div>
-        </div>
+       </div>
 
-      </div>
     </div>
   );
 }

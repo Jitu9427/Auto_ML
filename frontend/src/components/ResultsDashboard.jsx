@@ -5,7 +5,7 @@ export default function ResultsDashboard({ runHistory, isTraining, onDeleteRun }
 
   if (isTraining && runHistory.length === 0) {
     return (
-      <div className="glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+      <div className="glass-panel" style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
         <div style={{ fontSize: '3rem', marginBottom: '1rem', animation: 'pulse 2s infinite' }}>🧠</div>
         <h2 style={{ marginBottom: '0.5rem' }}>Training first model...</h2>
         <p style={{ color: 'var(--text-secondary)' }}>Our algorithms are crunching the numbers for you.</p>
@@ -15,7 +15,7 @@ export default function ResultsDashboard({ runHistory, isTraining, onDeleteRun }
 
   if (!runHistory || runHistory.length === 0) {
     return (
-      <div className="glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', opacity: 0.5 }}>
+      <div className="glass-panel" style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', opacity: 0.5 }}>
         <p>Configure model parameters and run an experiment to see history.</p>
       </div>
     );
@@ -96,7 +96,7 @@ export default function ResultsDashboard({ runHistory, isTraining, onDeleteRun }
                           {/* Parameters Panel */}
                           <div>
                               <h3 style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>Hyperparameters</h3>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '400px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '0.5rem' }}>
                                   {Object.keys(run.params || {}).length > 0 ? (
                                       Object.entries(run.params).map(([key, value]) => (
                                           <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', fontSize: '0.9rem' }}>

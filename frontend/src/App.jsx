@@ -114,7 +114,7 @@ export default function App() {
             {activeTab === 'train' ? (
               <>
                 {/* Left Configuration Panel */}
-                <div style={{ width: `calc(${splitRatio}% - 32px)`, flexShrink: 0, height: '100%', overflowY: 'auto', paddingLeft: '0.5rem' }}>
+                <div style={{ width: `calc(${splitRatio}% - 32px)`, flexShrink: 0, paddingLeft: '0.5rem', minHeight: '100%' }}>
                   <Configuration 
                     dataInfo={dataInfo} 
                     onTrainResults={handleTrainResults}  
@@ -128,7 +128,7 @@ export default function App() {
                 {/* Resizer Handle */}
                 <div 
                   onMouseDown={handleMouseDown}
-                  className="resizer"
+                  className={`resizer ${isDragging ? 'dragging' : ''}`}
                   style={{
                     width: '16px',
                     cursor: 'col-resize',
@@ -146,7 +146,7 @@ export default function App() {
                 </div>
 
                 {/* Right Results Panel */}
-                <div style={{ width: `calc(${100 - splitRatio}% - 32px)`, flex: 1, minWidth: 0, height: '100%', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                <div style={{ width: `calc(${100 - splitRatio}% - 32px)`, flex: 1, minWidth: 0, paddingRight: '0.5rem', minHeight: '100%' }}>
                   <ResultsDashboard 
                     runHistory={runHistory} 
                     isTraining={isTraining}
@@ -155,9 +155,20 @@ export default function App() {
                 </div>
               </>
             ) : activeTab === 'eda' ? (
-              <EDADashboard dataInfo={dataInfo} />
+              <EDADashboard 
+                dataInfo={dataInfo} 
+                splitRatio={splitRatio}
+                isDragging={isDragging}
+                handleMouseDown={handleMouseDown}
+              />
             ) : (
-              <PreprocessingDashboard dataInfo={dataInfo} setDataInfo={setDataInfo} />
+              <PreprocessingDashboard 
+                dataInfo={dataInfo} 
+                setDataInfo={setDataInfo} 
+                splitRatio={splitRatio}
+                isDragging={isDragging}
+                handleMouseDown={handleMouseDown}
+              />
             )}
           </div>
         )}

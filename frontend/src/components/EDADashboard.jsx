@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 
-export default function EDADashboard({ dataInfo }) {
+export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = false, handleMouseDown }) {
   const [selectedColumns, setSelectedColumns] = useState([]);
   const [plotType, setPlotType] = useState('');
   const [outputHistory, setOutputHistory] = useState([]);
@@ -67,12 +67,12 @@ export default function EDADashboard({ dataInfo }) {
     return [];
   }, [selectedColumns, columnTypes]);
 
-  // Set default plot type when options change
-  useMemo(() => {
+  // Set default plot type only when column selections change significantly
+  useEffect(() => {
     if (getPlotOptions.length > 0 && !getPlotOptions.includes(plotType)) {
       setPlotType(getPlotOptions[0]);
     }
-  }, [getPlotOptions, plotType]);
+  }, [getPlotOptions]);
 
   const generatePlot = async () => {
     if (selectedColumns.length === 0 || !plotType) return;
@@ -139,13 +139,13 @@ export default function EDADashboard({ dataInfo }) {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100%', width: '100%', gap: '1.5rem', padding: '0 0.5rem' }}>
+    <div style={{ display: 'flex', minHeight: '100%', width: '100%' }}>
       
       {/* Left Configuration Panel */}
-      <div className="glass-panel" style={{ width: '350px', display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="glass-panel" style={{ width: `calc(${splitRatio}% - 32px)`, display: 'flex', flexDirection: 'column', flexShrink: 0, marginLeft: '0.5rem', minHeight: '100%' }}>
         <h2 style={{ marginBottom: '1.5rem', fontSize: '1.25rem' }}>Data Analysis</h2>
         
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingRight: '0.5rem' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingRight: '0.5rem' }}>
           
           <div>
             <label className="label" style={{ marginBottom: '0.5rem' }}>Select Columns</label>
@@ -167,6 +167,19 @@ export default function EDADashboard({ dataInfo }) {
                   </div>
                 );
               })}
+            </div>
+            
+            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                <button 
+                  onClick={() => setSelectedColumns(dataInfo.columns)} 
+                  style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: 'none', padding: '0.4rem', color: '#f8fafc', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', transition: 'background 0.2s' }}>
+                    Select All
+                </button>
+                <button 
+                  onClick={() => setSelectedColumns([])} 
+                  style={{ flex: 1, background: 'rgba(239, 68, 68, 0.1)', border: 'none', padding: '0.4rem', color: '#fca5a5', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', transition: 'background 0.2s' }}>
+                    Clear
+                </button>
             </div>
           </div>
 
@@ -229,8 +242,29 @@ export default function EDADashboard({ dataInfo }) {
         {error && <div style={{ color: '#ef4444', marginTop: '1rem', fontSize: '0.85rem' }}>{error}</div>}
       </div>
 
+      {/* Resizer Handle */}
+      <div 
+        onMouseDown={handleMouseDown}
+        className={`resizer ${isDragging ? 'dragging' : ''}`}
+        style={{
+          width: '16px',
+          cursor: 'col-resize',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          margin: '0 8px',
+          userSelect: 'none',
+          backgroundColor: isDragging ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+          borderRadius: '4px',
+          transition: 'background-color 0.2s',
+          flexShrink: 0
+        }}
+      >
+          <div style={{ width: '2px', height: '30px', background: isDragging ? '#38bdf8' : 'rgba(255,255,255,0.2)', borderRadius: '2px' }} />
+      </div>
+
       {/* Right Plot Display Panel */}
-      <div className="main-content" style={{ flex: 1, minWidth: 0, height: '100%', overflowY: 'auto' }}>
+      <div className="main-content" style={{ width: `calc(${100 - splitRatio}% - 32px)`, flex: 1, minWidth: 0, minHeight: '100%', paddingRight: '0.5rem' }}>
           
           {summaryData && (
             <div className="glass-panel" style={{ marginBottom: '1.5rem', padding: '1.5rem' }}>

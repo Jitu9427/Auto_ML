@@ -228,7 +228,6 @@ def train_and_evaluate(df, target_column, task_type='classification', model_name
     ModelClass = get_estimator_class(task_type, model_name)
     if not ModelClass:
         raise ValueError(f"Model '{model_name}' is not supported for task type '{task_type}'.")
-
     # Clean input kwargs (e.g. empty strings become None)
     clean_params = {}
     for k, v in (model_params or {}).items():
@@ -241,7 +240,28 @@ def train_and_evaluate(df, target_column, task_type='classification', model_name
         elif v == "nan":
             clean_params[k] = float('nan')
         else:
-            clean_params[k] = v
+            # Smart casting for string-based inputs from frontend
+            if isinstance(v, str):
+                if v.lower() == 'true':
+                    clean_params[k] = True
+                elif v.lower() == 'false':
+                    clean_params[k] = False
+                elif v.lower() == 'none':
+                    clean_params[k] = None
+                else:
+                    try:
+                        # Try int first, then float
+                        if '.' in v or 'e' in v.lower():
+                            clean_params[k] = float(v)
+                        else:
+                            try:
+                                clean_params[k] = int(v)
+                            except ValueError:
+                                clean_params[k] = float(v)
+                    except ValueError:
+                        clean_params[k] = v # Keep as string if it's actually a string choice
+            else:
+                clean_params[k] = v
 
     try:
         model = ModelClass(**clean_params)

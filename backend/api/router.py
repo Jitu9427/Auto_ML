@@ -158,6 +158,12 @@ def generate_eda_plot(request: EDARequest):
     cols = request.selected_columns
     ptype = request.plot_type
     
+    # --- Performance Optimization ---
+    # Seaborn/Matplotlib struggles with >10k rows for complex kernels (KDE/Pairplots). 
+    # Sampling preserves the statistical integrity of the visualization instantly.
+    if len(df) > 3000:
+        df = df.sample(n=3000, random_state=42)
+    
     # Restrict to valid columns for safety
     valid_cols = [c for c in cols if c in df.columns]
     if not valid_cols:
@@ -196,10 +202,15 @@ def generate_eda_plot(request: EDARequest):
             sns.heatmap(corr, annot=True, cmap='coolwarm', ax=ax, fmt=".2f")
         else:
             # Dynamic Seaborn Resolving Engine
-            if not hasattr(sns, ptype):
+            sns_func_name = ptype
+            if ptype == 'distplot': sns_func_name = 'histplot'
+            elif ptype == 'histogram': sns_func_name = 'histplot'
+            elif ptype == 'hexbin': sns_func_name = 'jointplot'
+
+            if not hasattr(sns, sns_func_name):
                 raise ValueError(f"Visual type '{ptype}' is not an available Seaborn capability.")
                 
-            func = getattr(sns, ptype)
+            func = getattr(sns, sns_func_name)
             figure_level_plots = ['relplot', 'catplot', 'displot', 'lmplot', 'pairplot', 'jointplot', 'clustermap', 'hexbin']
             
             kwargs = {"data": df}
@@ -219,13 +230,10 @@ def generate_eda_plot(request: EDARequest):
             if ptype == 'distplot':
                 kwargs['stat'] = 'density'
                 kwargs['kde'] = True
-                func = sns.histplot # distplot is deprecated
             elif ptype == 'histogram':
                 kwargs['kde'] = False
-                func = sns.histplot
             elif ptype == 'hexbin':
                 kwargs['kind'] = 'hex'
-                func = sns.jointplot
                 
             result = func(**kwargs)
             
