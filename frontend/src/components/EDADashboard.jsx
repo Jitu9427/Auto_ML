@@ -149,7 +149,7 @@ export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = f
           
           <div>
             <label className="label" style={{ marginBottom: '0.5rem' }}>Select Columns</label>
-            <div className="custom-multi-select">
+            <div className="custom-multi-select" style={{ maxHeight: '250px' }}>
               {dataInfo.columns.map(col => {
                 const isSelected = selectedColumns.includes(col);
                 const isNum = columnTypes[col] === 'numerical';

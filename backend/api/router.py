@@ -12,6 +12,7 @@ import matplotlib
 matplotlib.use('Agg')  # Required for headless server rendering
 
 from ml.pipeline import train_and_evaluate, get_safe_estimators, apply_pandas_preprocessing, get_preprocessor
+from ml.tuning import tune_hyperparameters
 
 router = APIRouter()
 
@@ -22,6 +23,14 @@ class TrainRequest(BaseModel):
     model_name: str
     model_params: Dict[str, Any] = {}
     selected_metrics: List[str] = []
+    preprocessing_config: Dict[str, Any] = None
+
+class TuneRequest(BaseModel):
+    dataset_id: str
+    target_column: str = ""
+    task_type: str = "classification"
+    model_name: str
+    tuning_method: str = "Random Search"
     preprocessing_config: Dict[str, Any] = None
 
 class EDARequest(BaseModel):
@@ -109,6 +118,26 @@ def train_models(request: TrainRequest):
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error executing training pipeline: {str(e)}")
+
+@router.post("/tune")
+def tune_models(request: TuneRequest):
+    if request.dataset_id not in DATASETS:
+        raise HTTPException(status_code=404, detail="Dataset not found. Please upload again.")
+        
+    df = DATASETS[request.dataset_id]
+    
+    try:
+        best_params = tune_hyperparameters(
+            df,
+            request.target_column,
+            request.task_type,
+            request.model_name,
+            request.tuning_method,
+            request.preprocessing_config
+        )
+        return {"best_params": best_params}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/eda/summary/{dataset_id}")
 def get_eda_summary(dataset_id: str):

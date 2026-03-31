@@ -168,7 +168,7 @@ export default function PreprocessingDashboard({ dataInfo, setDataInfo, splitRat
             {/* Step 1: Column Selection */}
             <div>
                 <h3 style={{ fontSize: '1.1rem', color: '#f8fafc', marginBottom: '0.75rem' }}>1. Target Columns ({selectedColumns.length})</h3>
-            <div className="custom-multi-select" style={{ }}>
+            <div className="custom-multi-select" style={{ maxHeight: '250px' }}>
                 {currentColumns?.map(col => {
                     const isSelected = selectedColumns.includes(col);
                     const isNum = dataInfo?.column_types?.[col] === 'numerical';

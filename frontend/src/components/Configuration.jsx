@@ -15,6 +15,9 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
   
   const [selectedMetrics, setSelectedMetrics] = useState(CLASSIFICATION_METRICS);
   const [error, setError] = useState(null);
+  
+  const [tuningMethod, setTuningMethod] = useState('Bayesian Optimization');
+  const [isTuning, setIsTuning] = useState(false);
 
   // Fetch models whenever taskType changes
   useEffect(() => {
@@ -67,6 +70,46 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
       ...prev,
       [paramName]: value
     }));
+  };
+
+  const tuneHyperparameters = async () => {
+    if (!selectedModel) {
+      setError("Please select an algorithm to tune.");
+      return;
+    }
+
+    setIsTuning(true);
+    setError(null);
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/tune', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dataset_id: dataInfo.dataset_id,
+          target_column: targetColumn,
+          task_type: taskType,
+          model_name: selectedModel,
+          tuning_method: tuningMethod,
+          preprocessing_config: splitConfig
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to tune hyperparameters.');
+      }
+
+      const data = await response.json();
+      
+      setModelParams(prev => ({ ...prev, ...data.best_params }));
+      setShowAdvancedParams(true);
+      setError("Changes saved! Hyperparameters successfully tuned to optimal configuration using " + tuningMethod + " 🚀");
+      setTimeout(() => setError(null), 5000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsTuning(false);
+    }
   };
 
   const startTraining = async () => {
@@ -200,7 +243,36 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
         
         {/* Hyperparameters Section */}
         {Object.keys(modelParams).length > 0 && (
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            
+            {/* Auto-Tuning Dashboard Array */}
+            <div style={{ paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+               <label className="label" style={{ marginBottom: '0.5rem', color: '#c084fc' }}>Auto-Tune Hyperparameters ⚡</label>
+               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
+                  <select 
+                     className="select-input" 
+                     value={tuningMethod} 
+                     onChange={(e) => setTuningMethod(e.target.value)}
+                     disabled={isTraining || isTuning}
+                     style={{ flex: 1, padding: '0.6rem', fontSize: '0.85rem' }}
+                  >
+                     <option value="Bayesian Optimization">Bayesian Optimization (Optuna)</option>
+                     <option value="Hyperband">Hyperband (Successive Halving)</option>
+                     <option value="Random Search">Random Grid Search</option>
+                  </select>
+                  
+                  <button 
+                     className="btn" 
+                     onClick={tuneHyperparameters}
+                     disabled={isTraining || isTuning}
+                     style={{ padding: '0 1rem', background: isTuning ? 'rgba(192, 132, 252, 0.4)' : '#c084fc', color: '#fff', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+                  >
+                     {isTuning ? "Tuning ✨" : "Start Tuning"}
+                  </button>
+               </div>
+               <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontStyle: 'italic' }}>* Tries up to 15 intelligent parameter variations to automatically find the best possible accuracy.</p>
+            </div>
+
             <div 
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
               onClick={() => setShowAdvancedParams(!showAdvancedParams)}
