@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import '../index.css';
 
-export default function UploadForm({ onUploadSuccess }) {
+export default function UploadForm({ onUploadSuccess, projectId }) {
   const [isDragLoading, setIsDragLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -29,14 +29,21 @@ export default function UploadForm({ onUploadSuccess }) {
     const formData = new FormData();
     formData.append('file', file);
 
+    const token = localStorage.getItem('ml_token');
+    const BASE_URL = import.meta.env.VITE_API_URL || '';
+    let url = `${BASE_URL}/api/v1/upload`;
+    if (projectId) url += `?project_id=${projectId}`;
+
     try {
-      const response = await fetch('http://localhost:8000/api/v1/upload', {
+      const response = await fetch(url, {
         method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error('Upload failed. Check the server.');
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || 'Upload failed. Check the server.');
       }
 
       const data = await response.json();

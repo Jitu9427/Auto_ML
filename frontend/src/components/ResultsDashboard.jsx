@@ -21,16 +21,17 @@ export default function ResultsDashboard({ runHistory, isTraining, onDeleteRun }
     );
   }
 
-  const activeTaskType = runHistory[0].task_type;
+  const activeTaskType = runHistory[0]?.task_type || 'classification';
   
   // Determine primary metric for highlighting
   let primaryMetric = '';
   let lowerIsBetter = false;
+  
   if (activeTaskType === 'classification') {
       primaryMetric = 'Accuracy';
   } else if (activeTaskType === 'regression') {
       primaryMetric = 'R2 Score';
-      if (!runHistory[0].metrics['R2 Score'] && runHistory[0].metrics['MSE']) {
+      if (!(runHistory[0]?.metrics?.['R2 Score']) && runHistory[0]?.metrics?.['MSE']) {
           primaryMetric = 'MSE';
           lowerIsBetter = true;
       }

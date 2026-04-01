@@ -4,7 +4,7 @@ const CLASSIFICATION_METRICS = ['Accuracy', 'F1 Score', 'Precision', 'Recall'];
 const REGRESSION_METRICS = ['MSE', 'RMSE', 'MAE', 'R2 Score', 'Explained Variance', 'Max Error'];
 const CLUSTERING_METRICS = ['Silhouette Score', 'Davies-Bouldin Index', 'Calinski-Harabasz Index'];
 
-export default function Configuration({ dataInfo, onTrainResults, isTraining, setIsTraining, splitConfig, setSplitConfig }) {
+export default function Configuration({ dataInfo, onTrainResults, isTraining, setIsTraining, splitConfig, setSplitConfig, projectId }) {
   const [targetColumn, setTargetColumn] = useState(dataInfo.columns[dataInfo.columns.length - 1]);
   const [taskType, setTaskType] = useState('classification');
   
@@ -23,8 +23,12 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
   useEffect(() => {
     const fetchModels = async () => {
       setAvailableModelsInfo({});
+      const BASE_URL = import.meta.env.VITE_API_URL || '';
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/models/${taskType}`);
+        const token = localStorage.getItem('ml_token');
+        const response = await fetch(`${BASE_URL}/api/v1/models/${taskType}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
         if (response.ok) {
           const data = await response.json();
           setAvailableModelsInfo(data.models);
@@ -80,17 +84,20 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
 
     setIsTuning(true);
     setError(null);
+    const token = localStorage.getItem('ml_token');
+    const BASE_URL = import.meta.env.VITE_API_URL || '';
     try {
-      const response = await fetch('http://localhost:8000/api/v1/tune', {
+      const response = await fetch(`${BASE_URL}/api/v1/tune`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           dataset_id: dataInfo.dataset_id,
           target_column: targetColumn,
           task_type: taskType,
           model_name: selectedModel,
           tuning_method: tuningMethod,
-          preprocessing_config: splitConfig
+          preprocessing_config: splitConfig,
+          project_id: projectId
         }),
       });
 
@@ -124,11 +131,14 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
 
     setIsTraining(true);
     setError(null);
+    const token = localStorage.getItem('ml_token');
+    const BASE_URL = import.meta.env.VITE_API_URL || '';
     try {
-      const response = await fetch('http://localhost:8000/api/v1/train', {
+      const response = await fetch(`${BASE_URL}/api/v1/train`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           dataset_id: dataInfo.dataset_id,
@@ -137,7 +147,8 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
           model_name: selectedModel,
           model_params: modelParams,
           selected_metrics: selectedMetrics,
-          preprocessing_config: splitConfig
+          preprocessing_config: splitConfig,
+          project_id: projectId || null,
         }),
       });
 
@@ -365,10 +376,21 @@ export default function Configuration({ dataInfo, onTrainResults, isTraining, se
       </div>
 
       <button 
+        id="btn-run-experiment"
         className="btn" 
         onClick={startTraining}
         disabled={isTraining || !selectedModel}
-        style={{ width: '100%', padding: '1rem', marginTop: 'auto' }}
+        style={{ 
+            width: '100%', 
+            padding: '1rem', 
+            marginTop: 'auto',
+            background: isTraining ? 'rgba(56, 189, 248, 0.4)' : (selectedModel ? 'var(--primary-color)' : 'rgba(255,255,255,0.1)'),
+            cursor: isTraining ? 'not-allowed' : 'pointer',
+            opacity: selectedModel ? 1 : 0.5,
+            transition: 'all 0.2s',
+            boxShadow: selectedModel && !isTraining ? '0 4px 15px rgba(56, 189, 248, 0.3)' : 'none',
+            pointerEvents: 'auto'
+        }}
       >
         {isTraining ? "Running..." : "Run Experiment 🚀"}
       </button>

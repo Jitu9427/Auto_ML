@@ -1,10 +1,11 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 import pandas as pd
 import io
 import uuid
+import os
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import matplotlib.pyplot as plt
 import seaborn as sns
 import base64
@@ -13,6 +14,10 @@ matplotlib.use('Agg')  # Required for headless server rendering
 
 from ml.pipeline import train_and_evaluate, get_safe_estimators, apply_pandas_preprocessing, get_preprocessor
 from ml.tuning import tune_hyperparameters
+from auth import get_current_user
+from database import get_db
+from sqlalchemy.orm import Session
+import models
 
 router = APIRouter()
 
@@ -24,6 +29,7 @@ class TrainRequest(BaseModel):
     model_params: Dict[str, Any] = {}
     selected_metrics: List[str] = []
     preprocessing_config: Dict[str, Any] = None
+    project_id: Optional[int] = None
 
 class TuneRequest(BaseModel):
     dataset_id: str
@@ -37,11 +43,13 @@ class EDARequest(BaseModel):
     dataset_id: str
     selected_columns: List[str]
     plot_type: str
+    project_id: Optional[int] = None
 
 class PreprocessApplyRequest(BaseModel):
     dataset_id: str
     target_column: str = ""
     preprocessing_config: Dict[str, Any] = {}
+    project_id: Optional[int] = None
 
 class PreprocessStepRequest(BaseModel):
     dataset_id: str
@@ -49,9 +57,29 @@ class PreprocessStepRequest(BaseModel):
     technique: str
     method: str
     params: Dict[str, Any] = {}
+    project_id: Optional[int] = None
 
 # In-memory storage for datasets (in a real scalable app, use Redis/S3/Database)
 DATASETS = {}
+DATA_DIR = "/app/data"
+
+def get_dataset(dataset_id: str) -> pd.DataFrame:
+    if dataset_id in DATASETS:
+        return DATASETS[dataset_id]
+    file_path = os.path.join(DATA_DIR, f"{dataset_id}.csv")
+    if os.path.exists(file_path):
+        try:
+            df = pd.read_csv(file_path)
+            DATASETS[dataset_id] = df
+            return df
+        except Exception:
+            pass
+    raise HTTPException(status_code=404, detail="Dataset not found. Please upload again.")
+
+def save_dataset(df: pd.DataFrame, dataset_id: str):
+    DATASETS[dataset_id] = df
+    os.makedirs(DATA_DIR, exist_ok=True)
+    df.to_csv(os.path.join(DATA_DIR, f"{dataset_id}.csv"), index=False)
 
 @router.get("/health")
 def health_check():
@@ -65,7 +93,12 @@ def get_models(task_type: str):
     return {"models": models}
 
 @router.post("/upload")
-async def upload_csv(file: UploadFile = File(...)):
+async def upload_csv(
+    file: UploadFile = File(...),
+    project_id: Optional[int] = Query(None, description="Link upload to a project"),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are allowed.")
     
@@ -74,7 +107,7 @@ async def upload_csv(file: UploadFile = File(...)):
         df = pd.read_csv(io.BytesIO(content))
         
         dataset_id = str(uuid.uuid4())
-        DATASETS[dataset_id] = df
+        save_dataset(df, dataset_id)
         
         columns = df.columns.tolist()
         
@@ -87,7 +120,24 @@ async def upload_csv(file: UploadFile = File(...)):
             else:
                 column_types[col] = "categorical"
         
-        # Provide basic summary of target columns (typically non-id columns)
+        # Persist dataset metadata to project if project_id provided
+        if project_id:
+            project = db.query(models.Project).filter(
+                models.Project.id == project_id,
+                models.Project.user_id == current_user.id,
+            ).first()
+            if project:
+                pd_record = models.ProjectDataset(
+                    project_id=project_id,
+                    dataset_id=dataset_id,
+                    filename=file.filename,
+                    num_rows=len(df),
+                    columns=columns,
+                    column_types=column_types,
+                )
+                db.add(pd_record)
+                db.commit()
+        
         return {
             "dataset_id": dataset_id,
             "filename": file.filename,
@@ -99,11 +149,12 @@ async def upload_csv(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Error reading CSV: {str(e)}")
 
 @router.post("/train")
-def train_models(request: TrainRequest):
-    if request.dataset_id not in DATASETS:
-        raise HTTPException(status_code=404, detail="Dataset not found. Please upload again.")
-        
-    df = DATASETS[request.dataset_id]
+def train_models(
+    request: TrainRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    df = get_dataset(request.dataset_id)
     
     try:
         results = train_and_evaluate(
@@ -115,19 +166,42 @@ def train_models(request: TrainRequest):
             request.selected_metrics,
             request.preprocessing_config
         )
+
+        # Persist run to project if project_id provided
+        if request.project_id:
+            project = db.query(models.Project).filter(
+                models.Project.id == request.project_id,
+                models.Project.user_id == current_user.id,
+            ).first()
+            if project:
+                run_record = models.ProjectRun(
+                    project_id=request.project_id,
+                    dataset_id=request.dataset_id,
+                    run_metadata={
+                        "model_name": request.model_name,
+                        "task_type": request.task_type,
+                        "model_params": request.model_params,
+                        "selected_metrics": request.selected_metrics,
+                        "results": results,
+                    },
+                )
+                db.add(run_record)
+                db.commit()
+
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error executing training pipeline: {str(e)}")
 
 @router.post("/tune")
-def tune_models(request: TuneRequest):
-    if request.dataset_id not in DATASETS:
-        raise HTTPException(status_code=404, detail="Dataset not found. Please upload again.")
-        
-    df = DATASETS[request.dataset_id]
+def tune_models(
+    request: TuneRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    df = get_dataset(request.dataset_id)
     
     try:
-        best_params = tune_hyperparameters(
+        results = tune_hyperparameters(
             df,
             request.target_column,
             request.task_type,
@@ -135,16 +209,34 @@ def tune_models(request: TuneRequest):
             request.tuning_method,
             request.preprocessing_config
         )
-        return {"best_params": best_params}
+        
+        # Persist tuning run
+        if request.project_id:
+            project = db.query(models.Project).filter(
+                models.Project.id == request.project_id,
+                models.Project.user_id == current_user.id,
+            ).first()
+            if project:
+                run_record = models.ProjectRun(
+                    project_id=request.project_id,
+                    dataset_id=request.dataset_id,
+                    run_metadata={
+                        "model_name": request.model_name,
+                        "task_type": request.task_type,
+                        "tuning_method": request.tuning_method,
+                        "results": results, # Best params and metrics
+                    },
+                )
+                db.add(run_record)
+                db.commit()
+
+        return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/eda/summary/{dataset_id}")
 def get_eda_summary(dataset_id: str):
-    if dataset_id not in DATASETS:
-        raise HTTPException(status_code=404, detail="Dataset not found.")
-    
-    df = DATASETS[dataset_id]
+    df = get_dataset(dataset_id)
     
     # Phase 1: Summary Stats
     try:
@@ -152,8 +244,21 @@ def get_eda_summary(dataset_id: str):
     except:
         sample = df.head(min(5, len(df))).fillna("NaN").to_dict(orient="records")
         
-    shape = list(df.shape) # [rows, cols]
-    missing = df.isnull().sum().to_dict()
+    import math
+    
+    # describe() for numerical
+    def pure_json(d):
+        if isinstance(d, dict):
+            return {k: pure_json(v) for k, v in d.items()}
+        elif isinstance(d, list):
+            return [pure_json(v) for v in d]
+        elif isinstance(d, float) and (math.isnan(d) or math.isinf(d)):
+            return "NaN"
+        elif pd.isna(d):
+            return "NaN"
+        return d
+    
+    missing = pure_json(df.isnull().sum().to_dict())
     duplicates = int(df.duplicated().sum())
     
     # describe() for numerical
@@ -167,8 +272,9 @@ def get_eda_summary(dataset_id: str):
     memory_mb = round(df.memory_usage(deep=True).sum() / (1024 * 1024), 2)
     
     dtypes_dict = {str(k): str(v) for k, v in df.dtypes.items()}
+    shape = list(df.shape)
     
-    return {
+    return pure_json({
         "shape": shape,
         "sample": sample,
         "missing": missing,
@@ -176,14 +282,15 @@ def get_eda_summary(dataset_id: str):
         "describe": describe_dict,
         "dtypes": dtypes_dict,
         "memory_mb": memory_mb
-    }
+    })
 
 @router.post("/eda/plot")
-def generate_eda_plot(request: EDARequest):
-    if request.dataset_id not in DATASETS:
-        raise HTTPException(status_code=404, detail="Dataset not found. Please upload again.")
-        
-    df = DATASETS[request.dataset_id]
+def generate_eda_plot(
+    request: EDARequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    df = get_dataset(request.dataset_id)
     cols = request.selected_columns
     ptype = request.plot_type
     
@@ -284,6 +391,26 @@ def generate_eda_plot(request: EDARequest):
         img_base64 = base64.b64encode(buf.read()).decode('utf-8')
         plt.close(fig)
         
+        # Persist if project_id provided
+        if request.project_id:
+            project = db.query(models.Project).filter(
+                models.Project.id == request.project_id,
+                models.Project.user_id == current_user.id,
+            ).first()
+            if project:
+                eda_record = models.ProjectEDA(
+                    project_id=request.project_id,
+                    dataset_id=request.dataset_id,
+                    eda_metadata={
+                        "type": "plot",
+                        "plot_type": ptype,
+                        "columns": valid_cols,
+                        "image_base64": img_base64
+                    }
+                )
+                db.add(eda_record)
+                db.commit()
+        
         return {"image_base64": img_base64, "plot_type": ptype, "columns": cols}
     except ValueError as ve:
         plt.close(fig)
@@ -297,11 +424,12 @@ def generate_eda_plot(request: EDARequest):
 
 
 @router.post("/eda/head")
-def get_eda_head(request: EDARequest):
-    if request.dataset_id not in DATASETS:
-        raise HTTPException(status_code=404, detail="Dataset not found.")
-        
-    df = DATASETS[request.dataset_id]
+def get_eda_head(
+    request: EDARequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    df = get_dataset(request.dataset_id)
     cols = request.selected_columns
     
     valid_cols = [c for c in cols if c in df.columns]
@@ -310,16 +438,37 @@ def get_eda_head(request: EDARequest):
     
     try:
         sample = df[valid_cols].head(5).fillna("NaN").to_dict(orient="records")
+        
+        # Persist if project_id provided
+        if request.project_id:
+            project = db.query(models.Project).filter(
+                models.Project.id == request.project_id,
+                models.Project.user_id == current_user.id,
+            ).first()
+            if project:
+                eda_record = models.ProjectEDA(
+                    project_id=request.project_id,
+                    dataset_id=request.dataset_id,
+                    eda_metadata={
+                        "type": "head",
+                        "columns": valid_cols,
+                        "sample": sample
+                    }
+                )
+                db.add(eda_record)
+                db.commit()
+        
         return {"columns": valid_cols, "sample": sample}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error extracting data sample: {str(e)}")
 
 @router.post("/preprocess/apply")
-def apply_preprocessing(request: PreprocessApplyRequest):
-    if request.dataset_id not in DATASETS:
-        raise HTTPException(status_code=404, detail="Dataset not found. Please upload again.")
-        
-    df = DATASETS[request.dataset_id].copy()
+def apply_preprocessing(
+    request: PreprocessApplyRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    df = get_dataset(request.dataset_id).copy()
     
     try:
         # 1. Apply Pandas native mechanics
@@ -361,7 +510,31 @@ def apply_preprocessing(request: PreprocessApplyRequest):
         after_sample = X_trans_df.head(5).fillna("NaN").to_dict(orient="records")
         
         new_id = str(uuid.uuid4())
-        DATASETS[new_id] = X_trans_df
+        save_dataset(X_trans_df, new_id)
+        
+        if request.project_id:
+            project = db.query(models.Project).filter(
+                models.Project.id == request.project_id,
+                models.Project.user_id == current_user.id,
+            ).first()
+            if project:
+                dtypes = X_trans_df.dtypes
+                column_types = {}
+                for col in X_trans_df.columns:
+                    if pd.api.types.is_numeric_dtype(dtypes[col]):
+                        column_types[col] = "numerical"
+                    else:
+                        column_types[col] = "categorical"
+                pd_record = models.ProjectDataset(
+                    project_id=request.project_id,
+                    dataset_id=new_id,
+                    filename=f"preprocessed_{new_id[:8]}.csv",
+                    num_rows=len(X_trans_df),
+                    columns=list(X_trans_df.columns),
+                    column_types=column_types,
+                )
+                db.add(pd_record)
+                db.commit()
         
         return {
              "message": "Preprocessing applied successfully.",
@@ -377,10 +550,7 @@ def apply_preprocessing(request: PreprocessApplyRequest):
 
 @router.get("/dataset/download/{dataset_id}")
 def download_dataset(dataset_id: str):
-    if dataset_id not in DATASETS:
-        raise HTTPException(status_code=404, detail="Dataset not found or expired.")
-        
-    df = DATASETS[dataset_id]
+    df = get_dataset(dataset_id)
     
     stream = io.StringIO()
     df.to_csv(stream, index=False)
@@ -391,17 +561,19 @@ def download_dataset(dataset_id: str):
     return response
 
 @router.post("/preprocess/apply_step")
-def apply_preprocessing_step(request: PreprocessStepRequest):
-    if request.dataset_id not in DATASETS:
-        raise HTTPException(status_code=404, detail="Dataset not found or expired.")
-        
-    df = DATASETS[request.dataset_id].copy()
+def apply_preprocessing_step(
+    request: PreprocessStepRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    df = get_dataset(request.dataset_id).copy()
     valid_cols = [c for c in request.columns if c in df.columns]
     
     if not valid_cols:
         raise HTTPException(status_code=400, detail="No geometrically valid columns were targeted.")
         
     try:
+        df_before = df.copy()
         before_sample = df[valid_cols].head(5).fillna("NaN").astype(str).to_dict(orient="records")
         
         from sklearn.impute import SimpleImputer, KNNImputer
@@ -417,6 +589,12 @@ def apply_preprocessing_step(request: PreprocessStepRequest):
         technique = request.technique
         method = request.method
         p = request.params
+        
+        # --- Type Safety Guard --- 
+        # If the technique is mathematical/stochastic, we MUST ensure the subset is float64
+        # to prevent "Invalid value for dtype 'int64'" errors when assigning float results.
+        if technique in ['imputation', 'scaling', 'transformation', 'power_transform', 'outlier', 'binning', 'encoding']:
+            subset = subset.astype(float)
         
         if technique == 'imputation':
             if method == 'complete_case':
@@ -498,14 +676,38 @@ def apply_preprocessing_step(request: PreprocessStepRequest):
         after_sample = subset.head(5).fillna("NaN").astype(str).to_dict(orient="records")
              
         new_id = str(uuid.uuid4())
-        DATASETS[new_id] = df
+        save_dataset(df, new_id)
+        
+        if request.project_id:
+            project = db.query(models.Project).filter(
+                models.Project.id == request.project_id,
+                models.Project.user_id == current_user.id,
+            ).first()
+            if project:
+                dtypes = df.dtypes
+                column_types = {}
+                for col in df.columns.tolist():
+                    if pd.api.types.is_numeric_dtype(dtypes[col]):
+                        column_types[col] = "numerical"
+                    else:
+                        column_types[col] = "categorical"
+                pd_record = models.ProjectDataset(
+                    project_id=request.project_id,
+                    dataset_id=new_id,
+                    filename=f"step_{method}_{new_id[:8]}.csv",
+                    num_rows=len(df),
+                    columns=df.columns.tolist(),
+                    column_types=column_types,
+                )
+                db.add(pd_record)
+                db.commit()
         
         return {
              "message": f"Successfully mathematically applied {method} sequentially.",
              "new_dataset_id": new_id,
              "before_sample": before_sample,
              "after_sample": after_sample,
-             "before_shape": list(DATASETS[request.dataset_id].shape),
+             "before_shape": list(df_before.shape),
              "after_shape": list(df.shape),
              "new_columns": list(df.columns)
         }

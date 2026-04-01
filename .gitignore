@@ -1,4 +1,4 @@
-# venv
+# Virtual Environments
 backend/venv/
 backend/.venv/
 venv/
@@ -34,11 +34,18 @@ Thumbs.db
 *.swo
 
 # Project specific
+backend/data/
 backend/DATASETS/
+backend/ml_automation.db
 frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
 
-# Test files
-test_api.py
-dummy.csv
+# Logs and debugging 
+*.log
+backend_logs*.txt
+trace.txt
+out.json
+
+# Test data at root
+*.csv

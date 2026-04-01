@@ -8,3 +8,10 @@ python-multipart
 numpy
 xgboost
 optuna
+sqlalchemy
+psycopg2-binary
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+python-jose[cryptography]
+email-validator
+python-dotenv

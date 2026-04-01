@@ -1,0 +1,58 @@
+services:
+
+  # ── PostgreSQL Database ────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mluser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-mlautomation}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mluser} -d ${POSTGRES_DB:-mlautomation}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mlnet
+
+  # ── FastAPI Backend ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mluser}:${POSTGRES_PASSWORD:-mlpassword}@db:5432/${POSTGRES_DB:-mlautomation}
+      SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production!!}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/data:/app/data
+    networks:
+      - mlnet
+
+  # ── React Frontend (Nginx) ─────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - mlnet
+
+volumes:
+  postgres_data:
+    name: ml_automation_pgdata
+
+networks:
+  mlnet:
+    driver: bridge

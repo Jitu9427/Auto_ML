@@ -1,15 +1,23 @@
 import React, { useState } from 'react';
 
-export default function PreprocessingDashboard({ dataInfo, setDataInfo, splitRatio = 35, isDragging = false, handleMouseDown }) {
+export default function PreprocessingDashboard({ 
+    dataInfo, 
+    setDataInfo, 
+    splitRatio = 35, 
+    isDragging = false, 
+    handleMouseDown, 
+    projectId,
+    stagedChanges,
+    setStagedChanges,
+    expandedChangeId,
+    setExpandedChangeId
+}) {
   const [selectedColumns, setSelectedColumns] = useState([]);
   const [category, setCategory] = useState('imputation');
   const [method, setMethod] = useState('mean');
   const [params, setParams] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
-  const [stagedChanges, setStagedChanges] = useState([]);
-  const [expandedChangeId, setExpandedChangeId] = useState(null);
 
   const currentDatasetId = stagedChanges.length > 0 
       ? stagedChanges[stagedChanges.length - 1].dataset_id 
@@ -53,15 +61,23 @@ export default function PreprocessingDashboard({ dataInfo, setDataInfo, splitRat
     setError('');
     
     try {
-      const resp = await fetch('http://localhost:8000/api/v1/preprocess/apply_step', {
+      const BASE_URL = import.meta.env.VITE_API_URL || '';
+      const token = localStorage.getItem('ml_token');
+
+      const resp = await fetch(`${BASE_URL}/api/v1/preprocess/apply_step`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           dataset_id: currentDatasetId,
           columns: selectedColumns,
           technique: category,
+          technique: category,
           method: method,
-          params: params
+          params: params,
+          project_id: projectId
         })
       });
       
@@ -117,7 +133,8 @@ export default function PreprocessingDashboard({ dataInfo, setDataInfo, splitRat
 
   const handleDownload = (dataset_id) => {
     if (dataset_id) {
-       window.open(`http://localhost:8000/api/v1/dataset/download/${dataset_id}`, '_blank');
+       const BASE_URL = import.meta.env.VITE_API_URL || '';
+       window.open(`${BASE_URL}/api/v1/dataset/download/${dataset_id}?token=${localStorage.getItem('ml_token')}`, '_blank');
     }
   };
 
@@ -150,9 +167,17 @@ export default function PreprocessingDashboard({ dataInfo, setDataInfo, splitRat
   };
 
   return (
-    <div style={{ display: 'flex', width: '100%' }}>
+    <div style={{ display: 'flex', width: '100%', height: 'calc(100vh - 120px)', minHeight: '600px', overflow: 'hidden' }}>
        {/* Left Configuration Panel */}
-       <div className="glass-panel" style={{ width: `calc(${splitRatio}% - 32px)`, marginLeft: '0.5rem', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+       <div className="glass-panel custom-scrollbar" style={{ 
+          width: `calc(${splitRatio}% - 32px)`, 
+          marginLeft: '0.5rem', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          flexShrink: 0,
+          overflowY: 'auto',
+          paddingBottom: '2rem'
+        }}>
           
           <div style={{ marginBottom: '1.5rem' }}>
               <h2 style={{ margin: 0, fontSize: '1.35rem', background: 'linear-gradient(90deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
@@ -361,7 +386,7 @@ export default function PreprocessingDashboard({ dataInfo, setDataInfo, splitRat
       </div>
 
        {/* Right Results Dashboard */}
-       <div className="main-content" style={{ width: `calc(${100 - splitRatio}% - 32px)`, paddingRight: '0.5rem', flex: 1, minWidth: 0 }}>
+       <div className="main-content" style={{ width: `calc(${100 - splitRatio}% - 32px)`, paddingRight: '0.5rem', flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           
           <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '1rem', gap: '0.75rem' }}>
               {stagedChanges.length > 0 && (

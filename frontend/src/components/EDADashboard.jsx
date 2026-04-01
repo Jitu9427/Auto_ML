@@ -1,9 +1,16 @@
 import { useState, useMemo, useEffect } from 'react';
 
-export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = false, handleMouseDown }) {
+export default function EDADashboard({ 
+  dataInfo, 
+  splitRatio = 35, 
+  isDragging = false, 
+  handleMouseDown,
+  projectId = null,
+  edaHistory = [],
+  setEdaHistory
+}) {
   const [selectedColumns, setSelectedColumns] = useState([]);
   const [plotType, setPlotType] = useState('');
-  const [outputHistory, setOutputHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isHeadLoading, setIsHeadLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -19,8 +26,12 @@ export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = f
 
   useEffect(() => {
     const fetchSummary = async () => {
+      const BASE_URL = import.meta.env.VITE_API_URL || '';
+      const token = localStorage.getItem('ml_token');
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/eda/summary/${dataInfo.dataset_id}`);
+        const response = await fetch(`${BASE_URL}/api/v1/eda/summary/${dataInfo.dataset_id}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
         if(response.ok) {
            const data = await response.json();
            setSummaryData(data);
@@ -80,13 +91,20 @@ export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = f
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:8000/api/v1/eda/plot', {
+      const BASE_URL = import.meta.env.VITE_API_URL || '';
+      const token = localStorage.getItem('ml_token');
+      
+      const response = await fetch(`${BASE_URL}/api/v1/eda/plot`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           dataset_id: dataInfo.dataset_id,
           selected_columns: selectedColumns,
-          plot_type: plotType
+          plot_type: plotType,
+          project_id: projectId
         }),
       });
 
@@ -96,13 +114,13 @@ export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = f
       }
       
       const data = await response.json();
-      setOutputHistory(prev => [...prev, {
+      setEdaHistory(prev => [{
          id: Date.now(),
          type: 'plot',
          plotType: data.plot_type || plotType,
          columns: selectedColumns,
          image_base64: data.image_base64
-      }]);
+      }, ...prev]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -115,22 +133,33 @@ export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = f
     setIsHeadLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:8000/api/v1/eda/head', {
+      const BASE_URL = import.meta.env.VITE_API_URL || '';
+      const token = localStorage.getItem('ml_token');
+      
+      const response = await fetch(`${BASE_URL}/api/v1/eda/head`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataset_id: dataInfo.dataset_id, selected_columns: selectedColumns, plot_type: 'head' }),
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ 
+            dataset_id: dataInfo.dataset_id, 
+            selected_columns: selectedColumns, 
+            plot_type: 'head',
+            project_id: projectId 
+        }),
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || 'Failed to fetch data sample.');
       }
       const data = await response.json();
-      setOutputHistory(prev => [...prev, {
+      setEdaHistory(prev => [{
         id: Date.now(),
         type: 'head',
         columns: data.columns,
         sample: data.sample
-      }]);
+      }, ...prev]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -344,8 +373,10 @@ export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = f
             </div>
           )}
 
-          {outputHistory.map((item, index) => (
-             <div key={item.id} className="glass-panel" style={{ marginBottom: '1.5rem', padding: '1.5rem' }}>
+          {/* History Feed */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            {edaHistory.map((item, index) => (
+              <div key={item.id || index} className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.03)' }}>
                 <h2 style={{ marginBottom: '1rem', color: '#c084fc' }}>[{index + 2}] Output: {item.type === 'plot' ? item.plotType : '.head(5)'}</h2>
                 <div style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                    Columns: {item.columns.join(', ')}
@@ -375,8 +406,9 @@ export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = f
                       </table>
                     </div>
                 )}
-             </div>
-          ))}
+              </div>
+            ))}
+          </div>
 
           {isLoading && (
               <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
@@ -385,7 +417,7 @@ export default function EDADashboard({ dataInfo, splitRatio = 35, isDragging = f
               </div>
           )}
           
-          {outputHistory.length === 0 && !isLoading && summaryData && (
+          {(edaHistory.length === 0) && !isLoading && summaryData && (
              <div style={{ textAlign: 'center', opacity: 0.5, marginTop: '3rem' }}>
                  <p>Select columns and choose a tool on the left to add blocks to your notebook.</p>
              </div>
